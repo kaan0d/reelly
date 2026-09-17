@@ -1,6 +1,8 @@
 const TOGGLES = document.querySelectorAll('[data-toggle]');
 const statusEl = document.getElementById('status');
 
+document.getElementById('version').textContent = `v${chrome.runtime.getManifest().version}`;
+
 function getPath(obj, path) {
   return path.split('.').reduce((o, k) => o[k], obj);
 }

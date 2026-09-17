@@ -1,0 +1,163 @@
+.reelly-download-btn {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+  z-index: 2147483000;
+}
+
+.reelly-download-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.reelly-download-btn:active {
+  transform: scale(0.92);
+}
+
+/* Instagram: top-right corner, visible on hover */
+.reelly-download-btn--corner {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+}
+
+*:hover > .reelly-download-btn--corner,
+.reelly-download-btn--corner:hover {
+  opacity: 1;
+}
+
+/* Instagram Reels: real sibling in the rail's flex column, sized and spaced
+   like IG's own icon-only items (share/save/more — no count label), not our
+   generic dark-pill button. */
+.reelly-download-btn--rail {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin-bottom: 20px;
+  background: transparent;
+  border-radius: 0;
+  color: #fff;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+  transition: transform 0.12s ease;
+}
+
+.reelly-download-btn--rail svg {
+  width: 24px;
+  height: 24px;
+}
+
+.reelly-download-btn--rail:hover {
+  background: transparent;
+  transform: scale(1.08);
+}
+
+.reelly-download-btn--rail:active {
+  transform: scale(0.88);
+}
+
+.reelly-download-btn--rail.reelly-loading::after {
+  border-color: #fff;
+  border-top-color: transparent;
+}
+
+/* Instagram feed posts: real sibling appended after the send/paylaş button
+   in its horizontal row (which is that button's last position already), so
+   it lands between send and the separately-positioned save icon. Matches
+   the row's own 40x40 touch targets. */
+.reelly-download-btn--post-row {
+  width: 40px;
+  height: 40px;
+  margin-left: 4px;
+  background: transparent;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.reelly-download-btn--post-row:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Instagram story viewer: real sibling inserted just before the mute
+   toggle in its top-bar row, matching that row's smaller 32x32/16px icons. */
+.reelly-download-btn--story {
+  width: 32px;
+  height: 32px;
+  margin-right: 4px;
+  background: transparent;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+.reelly-download-btn--story svg {
+  width: 16px;
+  height: 16px;
+}
+
+.reelly-download-btn--story:hover {
+  background: transparent;
+  transform: scale(1.1);
+}
+
+/* X: inline in the tweet action bar */
+.reelly-download-btn--inline {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  color: rgb(83, 100, 113);
+}
+
+.reelly-download-btn--inline:hover {
+  background: rgba(29, 155, 240, 0.1);
+  color: rgb(29, 155, 240);
+}
+
+.reelly-download-btn.reelly-loading svg {
+  visibility: hidden;
+}
+
+.reelly-download-btn.reelly-loading::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: reelly-spin 0.6s linear infinite;
+}
+
+@keyframes reelly-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.reelly-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 8px);
+  background: #1c1c1e;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font: 13px -apple-system, "Segoe UI", Roboto, sans-serif;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 2147483001;
+}
+
+.reelly-toast--visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
