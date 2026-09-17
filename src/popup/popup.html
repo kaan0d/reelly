@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Reelly</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Reelly</h1>
+
+    <div class="site-list">
+      <div class="card" data-site="instagram">
+        <span class="badge ig">IG</span>
+        <span class="name">Instagram</span>
+        <label class="switch">
+          <input type="checkbox" data-toggle="sites.instagram" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="card" data-site="x">
+        <span class="badge x">X</span>
+        <span class="name">X (Twitter)</span>
+        <label class="switch">
+          <input type="checkbox" data-toggle="sites.x" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <p class="status" id="status"></p>
+
+    <hr />
+
+    <div class="card">
+      <span class="name">Debug Mode</span>
+      <label class="switch">
+        <input type="checkbox" data-toggle="debugMode" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <script src="../shared/messages.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Reelly — Social Media Downloader",
+  "version": "0.1.0",
+  "description": "Download Instagram Reels/Posts/Stories and X videos.",
+  "permissions": ["downloads", "webRequest", "storage"],
+  "host_permissions": [
+    "*://*.instagram.com/*",
+    "*://*.x.com/*",
+    "*://*.twitter.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/background.js"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.instagram.com/*"],
+      "js": [
+        "src/shared/logger.js",
+        "src/shared/storage.js",
+        "src/shared/messages.js",
+        "src/content/instagram.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.x.com/*", "*://*.twitter.com/*"],
+      "js": [
+        "src/shared/logger.js",
+        "src/shared/storage.js",
+        "src/shared/messages.js",
+        "src/content/x.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
