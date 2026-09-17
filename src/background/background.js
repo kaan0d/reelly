@@ -28,20 +28,72 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ url: isStale ? null : cached.url });
   }
 
+  if (message && message.type === Messages.TYPES.RESET_MEDIA_CACHE && sender.tab) {
+    lastMediaByTab.delete(sender.tab.id);
+    Logger.log(PREFIX, 'media cache reset for tab', sender.tab.id);
+  }
+
   if (message && message.type === Messages.TYPES.DOWNLOAD_REQUEST) {
     handleDownload(message.url, message.filename).then(sendResponse);
   }
 
+  if (message && message.type === Messages.TYPES.EXTRACT_ISOLATED) {
+    extractViaIsolatedTab(message.postId).then((url) => sendResponse({ url }));
+  }
+
   return true; // keep channel open for async sendResponse
 });
+
+// MV3 service workers have no URL.createObjectURL (no document to register
+// a blob: url against), so chrome.downloads.download can't take a blob: url
+// from here — encode as a data: url instead, which needs no such registry.
+// Chunked to avoid blowing the call-stack limit of String.fromCharCode on a
+// multi-MB array.
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+// chrome.downloads.download() resolves once the download is QUEUED, not
+// once it finishes — a signed CDN url that's expired by click time (IG's
+// oe=/oh= params are short-lived) still resolves here, then fails silently
+// server-side, leaving a 0-byte file while we'd already reported success.
+// Wait for the real outcome via onChanged instead of trusting the resolve.
+function waitForDownloadComplete(downloadId, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      chrome.downloads.onChanged.removeListener(onChanged);
+      clearTimeout(timer);
+      err ? reject(err) : resolve();
+    };
+    function onChanged(delta) {
+      if (delta.id !== downloadId) return;
+      if (delta.state?.current === 'complete') finish();
+      if (delta.state?.current === 'interrupted') {
+        finish(new Error(delta.error?.current || 'download interrupted'));
+      }
+    }
+    chrome.downloads.onChanged.addListener(onChanged);
+    const timer = setTimeout(() => finish(new Error('download timed out')), timeoutMs);
+  });
+}
 
 // Download mechanism (Phase 6): try a direct browser download first; if the
 // URL needs headers/referer the download manager won't send, fetch it as a
 // blob in this extension context (has host_permissions, so no CORS) instead.
 async function handleDownload(url, filename) {
   try {
-    await chrome.downloads.download({ url, filename });
-    Logger.log(PREFIX, 'download started', filename);
+    const downloadId = await chrome.downloads.download({ url, filename });
+    await waitForDownloadComplete(downloadId);
+    Logger.log(PREFIX, 'download complete', filename);
     return { ok: true };
   } catch (err) {
     Logger.warn(PREFIX, 'direct download failed, falling back to fetch+blob', err);
@@ -49,10 +101,14 @@ async function handleDownload(url, filename) {
 
   try {
     const res = await fetch(url);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    await chrome.downloads.download({ url: blobUrl, filename });
-    Logger.log(PREFIX, 'download started via blob fallback', filename);
+    if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+    const buffer = await res.arrayBuffer();
+    if (buffer.byteLength === 0) throw new Error('fetched 0 bytes');
+    const mimeType = res.headers.get('content-type') || 'video/mp4';
+    const dataUrl = `data:${mimeType};base64,${arrayBufferToBase64(buffer)}`;
+    const downloadId = await chrome.downloads.download({ url: dataUrl, filename });
+    await waitForDownloadComplete(downloadId);
+    Logger.log(PREFIX, 'download complete via blob fallback', filename);
     return { ok: true };
   } catch (err) {
     Logger.error(PREFIX, 'fetch+blob fallback failed', err);
@@ -73,7 +129,16 @@ async function handleDownload(url, filename) {
 const mp4Watchers = new Set(); // tabIds currently live-watching
 const MP4_WATCH_TIMEOUT_MS = 8000;
 const lastMediaByTab = new Map(); // tabId -> { url, rangeSize, ts }
-const MEDIA_CACHE_STALE_MS = 20000;
+const MEDIA_CACHE_STALE_MS = 5000;
+// Requests more than this far apart belong to different reels (the feed
+// preloads many at once, and IG's CDN URLs carry no reel/post id to tell
+// them apart), so a new burst always replaces the cache outright instead of
+// only when bigger — otherwise a big reel scrolled past minutes ago could
+// keep "winning" against a small reel actually on screen, downloading the
+// wrong (and much larger) video. Within one burst still prefer the bigger
+// response, since a reel's video/audio tracks arrive close together and the
+// video track is reliably the larger of the two.
+const BURST_GAP_MS = 1500;
 
 function watchTabForMp4(tabId) {
   mp4Watchers.add(tabId);
@@ -96,16 +161,37 @@ function rangeSizeOf(url) {
   }
 }
 
+// Each captured request is one HTTP byte-range slice of a larger resource
+// (confirmed live: the raw url returned 62KB; the same url with these two
+// params removed returned the full 2.2MB file, status 200, valid ftyp/mp4
+// header — same technique used by the open-source insta-loader extension).
+// Downloading the raw captured url gave corrupt/truncated files.
+function stripByteRange(url) {
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('bytestart');
+    u.searchParams.delete('byteend');
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 chrome.webRequest.onCompleted.addListener(
   (details) => {
     const isVideoUrl = details.url.includes('.mp4') || details.url.includes('.m3u8');
     if (!isVideoUrl) return;
 
     const prev = lastMediaByTab.get(details.tabId);
-    const isStale = !prev || Date.now() - prev.ts > MEDIA_CACHE_STALE_MS;
+    const now = Date.now();
+    const isNewBurst = !prev || now - prev.ts > BURST_GAP_MS;
     const size = rangeSizeOf(details.url);
-    if (isStale || size >= prev.rangeSize) {
-      lastMediaByTab.set(details.tabId, { url: details.url, rangeSize: size, ts: Date.now() });
+    if (isNewBurst || size >= prev.rangeSize) {
+      lastMediaByTab.set(details.tabId, {
+        url: stripByteRange(details.url),
+        rangeSize: size,
+        ts: now,
+      });
     }
 
     if (mp4Watchers.has(details.tabId)) {
@@ -113,7 +199,7 @@ chrome.webRequest.onCompleted.addListener(
       Logger.log(PREFIX, 'video response caught for tab', details.tabId, details.url);
       chrome.tabs.sendMessage(details.tabId, {
         type: Messages.TYPES.MP4_CAUGHT,
-        url: details.url,
+        url: stripByteRange(details.url),
       });
     }
   },
@@ -125,3 +211,60 @@ chrome.webRequest.onCompleted.addListener(
     ],
   }
 );
+
+// Isolated extraction: the reels feed keeps many videos preloaded at once
+// with no reel/post id in their CDN urls, so a click can grab a completely
+// different (and often much larger) reel's traffic than the one on screen —
+// no amount of timing heuristics in the shared cache above can fully fix
+// that within a noisy multi-video tab. /p/<id>/ (classic single-post view,
+// the same trick the open-source insta-loader extension uses) renders just
+// one video, so opening it in its own hidden tab and scoping capture to
+// that tab's id by construction rules out cross-reel contamination.
+const ISOLATED_TAB_SETTLE_MS = 1500; // resolve once quiet this long (video+audio pair arrived)
+const ISOLATED_TAB_MAX_MS = 10000; // hard cap in case nothing ever arrives
+
+function extractViaIsolatedTab(postId) {
+  if (!postId) return Promise.resolve(null);
+
+  return chrome.tabs
+    .create({ url: `https://www.instagram.com/p/${postId}/`, active: false })
+    .then(
+      (tab) =>
+        new Promise((resolve) => {
+          let settled = false;
+          let best = null;
+          let settleTimer = null;
+
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(settleTimer);
+            clearTimeout(hardCap);
+            chrome.webRequest.onCompleted.removeListener(onRequest);
+            chrome.tabs.remove(tab.id).catch(() => {});
+            Logger.log(PREFIX, 'isolated extraction finished for', postId, !!best);
+            resolve(best ? best.url : null);
+          };
+
+          function onRequest(details) {
+            if (details.tabId !== tab.id) return;
+            if (!details.url.includes('.mp4') && !details.url.includes('.m3u8')) return;
+            const size = rangeSizeOf(details.url);
+            if (!best || size > best.rangeSize) {
+              best = { url: stripByteRange(details.url), rangeSize: size };
+            }
+            clearTimeout(settleTimer);
+            settleTimer = setTimeout(finish, ISOLATED_TAB_SETTLE_MS);
+          }
+
+          chrome.webRequest.onCompleted.addListener(onRequest, {
+            urls: ['*://*.cdninstagram.com/*', '*://*.fbcdn.net/*'],
+          });
+          const hardCap = setTimeout(finish, ISOLATED_TAB_MAX_MS);
+        })
+    )
+    .catch((err) => {
+      Logger.warn(PREFIX, 'isolated tab extraction failed', err);
+      return null;
+    });
+}
