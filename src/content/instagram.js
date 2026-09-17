@@ -25,20 +25,54 @@
 
     const seen = new WeakSet();
 
+    function requestIsolatedExtraction(postId) {
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          { type: Messages.TYPES.EXTRACT_ISOLATED, postId },
+          (response) => resolve(response && response.url)
+        );
+      });
+    }
+
     // Extraction runs on click, not on injection, so we don't spin up a
     // network watcher for every video that merely scrolls into view.
+    //
+    // Tried first: open this exact reel's /p/<id>/ page in its own hidden
+    // tab and sniff traffic scoped to just that tab. The reels feed keeps
+    // many videos preloaded at once with no reel/post id in their CDN urls,
+    // so sniffing in the current tab can grab a completely different (often
+    // much larger) reel's video than the one on screen — an isolated tab
+    // rules that out by construction instead of guessing from timing. Falls
+    // back to the DOM/network-sniff/embed pipeline if it finds nothing.
+    async function attemptDownload(videoEl) {
+      const postId = IGExtract.getPostId();
+      const filename = `instagram-${postId || Date.now()}.mp4`;
+
+      if (postId) {
+        const isolatedUrl = await requestIsolatedExtraction(postId).catch(() => null);
+        if (isolatedUrl) {
+          Logger.log(PREFIX, 'isolated extraction succeeded');
+          const result = await Download.requestDownload(isolatedUrl, filename);
+          if (result.ok) {
+            Logger.log(PREFIX, 'download complete (isolated)');
+            return;
+          }
+          Logger.warn(PREFIX, 'isolated download failed, falling back', result.error);
+        } else {
+          Logger.log(PREFIX, 'isolated extraction found nothing, falling back');
+        }
+      }
+
+      const url = await IGExtract.extractVideoUrl(videoEl);
+      if (!url) throw new Error('all extraction strategies failed');
+      const result = await Download.requestDownload(url, filename);
+      if (!result.ok) throw new Error(result.error || 'download failed');
+      Logger.log(PREFIX, 'download complete');
+    }
+
     function onDownloadClick(videoEl, btn) {
       btn.classList.add('reelly-loading');
-      IGExtract.extractVideoUrl(videoEl)
-        .then((url) => {
-          if (!url) throw new Error('all extraction strategies failed');
-          const postId = IGExtract.getPostId() || Date.now();
-          return Download.requestDownload(url, `instagram-${postId}.mp4`);
-        })
-        .then((result) => {
-          if (!result.ok) throw new Error(result.error || 'download failed');
-          Logger.log(PREFIX, 'download complete');
-        })
+      attemptDownload(videoEl)
         .catch((err) => {
           Logger.error(PREFIX, 'download flow failed', err);
           Toast.show('Download failed. Try again.');
@@ -114,6 +148,17 @@
     function handleVideo(videoEl) {
       if (seen.has(videoEl)) return;
       seen.add(videoEl);
+
+      // The background's network-sniff cache can only key on tabId (IG's CDN
+      // urls carry no reel/post id), so without this it can keep serving a
+      // scrolled-past reel's video to a click on a completely different one.
+      // IG's own player calls .play() on whichever video becomes the active
+      // one — scroll, autoplay advance, or a swapped-in <video> element all
+      // go through it — so resetting here on every play event covers all
+      // three without us reimplementing visibility tracking.
+      videoEl.addEventListener('play', () => {
+        chrome.runtime.sendMessage({ type: Messages.TYPES.RESET_MEDIA_CACHE });
+      });
 
       // Reel/post check first: reels have their own small mute icon too, and
       // findStoryMuteItem() would wrongly win priority over the rail if
