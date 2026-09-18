@@ -19,12 +19,6 @@
       // muted/unmuted state and language, so match loosely by substring.
       muteIcon: 'svg[aria-label*="Ses" i], svg[aria-label*="udio" i], svg[aria-label*="ute" i]',
     },
-    x: {
-      tweetArticle: 'article[data-testid="tweet"]',
-      video: 'video',
-      actionBar: 'div[role="group"]',
-      tweetIdFromHref: /\/status\/(\d+)/,
-    },
   };
 
   global.Selectors = Selectors;

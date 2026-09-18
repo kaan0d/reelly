@@ -1,7 +1,7 @@
-// chrome.storage.sync schema: { sites: { instagram: bool, x: bool }, debugMode: bool }
+// chrome.storage.sync schema: { sites: { instagram: bool }, debugMode: bool }
 (function (global) {
   const DEFAULTS = {
-    sites: { instagram: true, x: true },
+    sites: { instagram: true },
     debugMode: false,
   };
 

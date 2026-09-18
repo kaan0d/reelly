@@ -21,14 +21,14 @@ function applySettings(settings) {
 }
 
 chrome.storage.sync.get(
-  { sites: { instagram: true, x: true }, debugMode: false },
+  { sites: { instagram: true }, debugMode: false },
   applySettings
 );
 
 TOGGLES.forEach((input) => {
   input.addEventListener('change', () => {
     chrome.storage.sync.get(
-      { sites: { instagram: true, x: true }, debugMode: false },
+      { sites: { instagram: true }, debugMode: false },
       (settings) => {
         setPath(settings, input.dataset.toggle, input.checked);
         chrome.storage.sync.set(settings);
@@ -40,7 +40,7 @@ TOGGLES.forEach((input) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync') return;
   chrome.storage.sync.get(
-    { sites: { instagram: true, x: true }, debugMode: false },
+    { sites: { instagram: true }, debugMode: false },
     applySettings
   );
 });
