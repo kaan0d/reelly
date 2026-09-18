@@ -204,11 +204,7 @@ chrome.webRequest.onCompleted.addListener(
     }
   },
   {
-    urls: [
-      '*://*.cdninstagram.com/*',
-      '*://*.fbcdn.net/*',
-      '*://*.video.twimg.com/*',
-    ],
+    urls: ['*://*.cdninstagram.com/*', '*://*.fbcdn.net/*'],
   }
 );
 
@@ -220,8 +216,14 @@ chrome.webRequest.onCompleted.addListener(
 // the same trick the open-source insta-loader extension uses) renders just
 // one video, so opening it in its own hidden tab and scoping capture to
 // that tab's id by construction rules out cross-reel contamination.
-const ISOLATED_TAB_SETTLE_MS = 1500; // resolve once quiet this long (video+audio pair arrived)
-const ISOLATED_TAB_MAX_MS = 10000; // hard cap in case nothing ever arrives
+// A single chunk this size can only be the video track (audio chunks are a
+// few hundred bytes, per rangeSizeOf's comment below) — finish the instant
+// one arrives instead of waiting out the settle window, since that window
+// was the main source of latency (IG keeps preloading unrelated chunks
+// while the tab boots, so it kept getting reset).
+const EARLY_EXIT_BYTES = 50000;
+const ISOLATED_TAB_SETTLE_MS = 600; // resolve once quiet this long, if nothing hit early-exit
+const ISOLATED_TAB_MAX_MS = 6000; // hard cap in case nothing ever arrives
 
 function extractViaIsolatedTab(postId) {
   if (!postId) return Promise.resolve(null);
@@ -252,6 +254,10 @@ function extractViaIsolatedTab(postId) {
             const size = rangeSizeOf(details.url);
             if (!best || size > best.rangeSize) {
               best = { url: stripByteRange(details.url), rangeSize: size };
+            }
+            if (size >= EARLY_EXIT_BYTES) {
+              finish();
+              return;
             }
             clearTimeout(settleTimer);
             settleTimer = setTimeout(finish, ISOLATED_TAB_SETTLE_MS);
